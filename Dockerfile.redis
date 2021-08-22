@@ -1,0 +1,68 @@
+FROM alpine:3.9 as redis-builder
+
+ARG VERSION=6.2.5
+
+RUN apk add -U git make build-base linux-headers pkgconfig
+
+WORKDIR /src/
+RUN git clone https://github.com/redis/redis.git
+WORKDIR /src/redis
+RUN git checkout ${VERSION}
+
+RUN make
+RUN make install
+
+##################
+FROM --platform=$BUILDPLATFORM alpine:3.9 as redis-docker-src
+
+ARG BUILDPLATFORM
+
+WORKDIR /src
+
+RUN apk add -U git
+
+RUN git clone https://github.com/OT-CONTAINER-KIT/redis.git
+
+
+
+##################
+FROM alpine:3.9
+
+MAINTAINER Opstree Solutions
+
+LABEL VERSION=1.0 \
+      ARCH=AMD64 \
+      DESCRIPTION="A production grade performance tuned redis docker image created by Opstree Solutions"
+
+ARG REDIS_DOWNLOAD_URL="http://download.redis.io/"
+
+ARG REDIS_VERSION="stable"
+
+RUN addgroup -S -g 1001 redis && adduser -S -G redis -u 1001 redis && \
+    apk add --no-cache su-exec tzdata bash
+
+RUN mkdir -p /etc/redis
+
+COPY --from=redis-builder /src/redis/*.conf /etc/redis/
+COPY --from=redis-builder /usr/local/bin/* /usr/local/bin/
+
+
+
+COPY --from=redis-docker-src /src/redis/redis.conf /etc/redis/redis.conf
+
+COPY --from=redis-docker-src /src/redis/entrypoint.sh /usr/bin/entrypoint.sh
+
+COPY --from=redis-docker-src /src/redis/setupMasterSlave.sh /usr/bin/setupMasterSlave.sh
+
+COPY --from=redis-docker-src /src/redis/healthcheck.sh /usr/bin/healthcheck.sh
+
+RUN mkdir -p /opt/redis/ && \
+    chmod -R g+rwX /etc/redis /opt/redis
+
+VOLUME ["/data"]
+
+WORKDIR /data
+
+EXPOSE 6379
+
+ENTRYPOINT ["/usr/bin/entrypoint.sh"]
